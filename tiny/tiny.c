@@ -71,6 +71,10 @@ void doit(int fd)
     return;
   }
 
+  if (strcmp(method, "HEAD"))
+  {
+  }
+
   // 요청 헤더는 무시함
   read_requesthdrs(&rio);
 
@@ -171,7 +175,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
       strcpy(cgiargs, "");
     }
     strcpy(filename, ".");
-    strcpy(filename, uri);
+    strcat(filename, uri);
     return 0;
   }
 }
@@ -192,7 +196,7 @@ void get_filetype(char *filename, char *filetype)
     strcpy(filetype, "text/plain");
 }
 
-void serve_static(int fd, char *filename, int filesize)
+void serve_static_origin(int fd, char *filename, int filesize)
 {
   int srcfd;
   char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -224,6 +228,44 @@ void serve_static(int fd, char *filename, int filesize)
   Close(srcfd);
   Rio_writen(fd, srcp, filesize); //파일을 클라이언트에게 전송 -> 주소 srcp에서 시작하는 filesize 바이트를 클라이언트의 연결 식별자로 복사함.
   Munmap(srcp, filesize);         //매핑된 가상메모리 주소를 반환
+}
+
+void serve_static(int fd, char *filename, int filesize)
+{
+  int srcfd;
+  char *srcp, filetype[MAXLINE], buf[MAXBUF];
+
+  //client에게 response header 보내기
+  get_filetype(filename, filetype);
+  sprintf(buf, "HTTP/1.0 200 OK\r\n");
+  sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
+  sprintf(buf, "%sConnection: close\r\n", buf);
+  sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
+  sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
+  Rio_writen(fd, buf, strlen(buf));
+  printf("Response headers:\n");
+  printf("%s", buf);
+
+  //O_RDONLY -> 파일을 읽기 전용으로 열기 <-> O_WRONLY, 둘 합치면 O_RDWR
+  srcfd = Open(filename, O_RDONLY, 0);
+  //mmap는 요청한 파일을 가상메모리 영역으로 매핑함
+  //Mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset)
+  //fd로 지정된 파일에서 offset을 시작으로 length바이트 만큼 start주소로 대응시키도록 한다.
+  //start주소는 단지 그 주소를 사용했으면 좋겠다는 정도로 보통 0을 지정한다.
+  //mmap는 지정된 영역이 대응된 실제 시작위치를 반환한다.
+  //prot 인자는 원하는 메모리 보호모드(:12)를 설정한다
+  //-> PROT_EXEC - 실행가능, PROT_READ - 읽기 가능, NONE - 접근 불가, WRITE - 쓰기 가능
+  //flags는 대응된 객체의 타입, 대응 옵션, 대응된 페이지 복사본에 대한 수정이 그 프로세스에서만 보일 것인지, 다른 참조하는 프로세스와 공유할 것인지 설정
+  //MAP_FIXED - 지정한 주소만 사용, 사용 못한다면 실패 / MAP_SHARED - 대응된 객체를 다른 모든 프로세스와 공유 / MAP_PRIVATE - 다른 프로세스와 대응 영역 공유하지 않음
+
+  // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); //srcfd의 첫 번째 filesize 바이트를 주소 srcp에서 시작하는 사적 읽기-허용 가상메모리 영역으로 매핑함
+  srcp = (char *)malloc(filesize);
+  Rio_readn(srcfd, srcp, filesize);
+  Close(srcfd);
+  Rio_writen(fd, srcp, filesize); //파일을 클라이언트에게 전송 -> 주소 srcp에서 시작하는 filesize 바이트를 클라이언트의 연결 식별자로 복사함.
+  free(srcp);
+  srcp = 0;
+  //Munmap(srcp, filesize);         //매핑된 가상메모리 주소를 반환
 }
 
 void serve_dynamic(int fd, char *filename, char *cgiargs)
