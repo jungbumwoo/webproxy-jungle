@@ -16,6 +16,7 @@ void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
                  char *longmsg);
+void response_header(int fd, char *filename, int filesize);
 
 int main(int argc, char **argv)
 {
@@ -65,14 +66,10 @@ void doit(int fd)
   sscanf(buf, "%s %s %s", method, uri, version);
 
   // Get 요청인지 아닌지 확인
-  if (strcasecmp(method, "GET"))
+  if (strcasecmp(method, "GET") && strcasecmp(method, "HEAD"))
   {
     clienterror(fd, method, "501", "Not implemented", "Tiny doesn't implement this method");
     return;
-  }
-
-  if (strcmp(method, "HEAD"))
-  {
   }
 
   // 요청 헤더는 무시함
@@ -85,6 +82,11 @@ void doit(int fd)
   {
     clienterror(fd, filename, "404", "Not found", "Tiny couldn't find this file");
     return;
+  }
+
+  if (!strcasecmp(method, "HEAD"))
+  {
+    response_header(fd, filename, sbuf.st_mode);
   }
 
   // 정적 컨텐츠
@@ -285,4 +287,21 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
     Execve(filename, emptylist, environ); /* Run CGI program */
   }
   Wait(NULL); /* 부모가 자식을 기다려야 함. */
+}
+
+void response_header(int fd, char *filename, int filesize)
+{
+  int srcfd;
+  char *srcp, filetype[MAXLINE], buf[MAXBUF];
+
+  //client에게 response header 보내기
+  get_filetype(filename, filetype);
+  sprintf(buf, "HTTP/1.0 200 OK\r\n");
+  sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
+  sprintf(buf, "%sConnection: close\r\n", buf);
+  sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
+  sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
+  Rio_writen(fd, buf, strlen(buf));
+  printf("Response headers:\n");
+  printf("%s", buf);
 }
